@@ -1,0 +1,173 @@
+<!doctype html>
+<html data-theme="dark" data-identity="show">
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --fs: 15px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif,
+            "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
+  }
+  [data-theme="dark"] {
+    --card: #181818; --text: #f3f5f7; --muted: #777777; --border: rgba(243, 245, 247, 0.15);
+    --link: #4ea4f6; --pill: rgba(243, 245, 247, 0.12); --redact: #000; --shadow: rgba(0, 0, 0, 0.55);
+  }
+  [data-theme="light"] {
+    --card: #ffffff; --text: #000000; --muted: #999999; --border: rgba(0, 0, 0, 0.15);
+    --link: #0064d1; --pill: rgba(0, 0, 0, 0.07); --redact: #000; --shadow: rgba(0, 0, 0, 0.3);
+  }
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { font-family: var(--font); -webkit-font-smoothing: antialiased; }
+  #wrap { display: inline-block; padding: 14px 14px 20px; }
+  .card {
+    box-sizing: border-box; width: var(--card-w, 420px);
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 18px;
+    box-shadow: 0 6px 18px var(--shadow);
+    padding: 14px 16px 12px; display: flex; gap: 12px;
+    font-size: var(--fs); line-height: 1.4;
+  }
+  .avatar { flex: 0 0 auto; width: 2.4em; height: 2.4em; border-radius: 50%; overflow: hidden; background: #3a3a3a;
+            display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: calc(var(--fs) * 1.0); }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .main { flex: 1 1 auto; min-width: 0; }
+  .header { display: flex; align-items: center; gap: 0.3em; white-space: nowrap; }
+  .username { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+  .badge { width: 1em; height: 1em; flex: 0 0 auto; }
+  .pill { font-size: 0.78em; color: var(--text); opacity: 0.75; background: var(--pill); border-radius: 999px; padding: 0.05em 0.55em; margin-left: 0.15em; }
+  .time { color: var(--muted); margin-left: 0.15em; }
+  .more { margin-left: auto; color: var(--text); letter-spacing: 0.08em; font-weight: 700; padding-left: 0.6em; }
+  .text { margin-top: 0.15em; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .mention { color: var(--link); }
+  .media { margin-top: 0.6em; }
+  .media img { display: block; max-width: 100%; max-height: var(--media-h, 300px); border-radius: 8px; border: 1px solid var(--border); object-fit: cover; }
+  .actions { display: flex; gap: 1.3em; margin-top: 0.7em; color: var(--text); font-size: 0.9em; align-items: center; }
+  .action { display: flex; align-items: center; gap: 0.35em; }
+  .action svg { width: 1.3em; height: 1.3em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  [data-identity="blur"] .who, [data-identity="blur"] .avatar { filter: blur(7px); }
+  [data-identity="black"] .who { background: var(--redact); color: transparent !important; border-radius: 4px; }
+  [data-identity="black"] .avatar { background: var(--redact); }
+  [data-identity="black"] .avatar img, [data-identity="black"] .avatar span { visibility: hidden; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div class="card" id="card">
+    <div class="avatar" id="avatar"></div>
+    <div class="main">
+      <div class="header">
+        <span class="username who" id="username"></span>
+        <svg class="badge" id="badge" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="11" fill="#0095f6"/>
+          <path d="M7 12.4l3.2 3.1 6.6-6.8" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="pill" id="pill"></span>
+        <span class="time" id="time"></span>
+        <span class="more">···</span>
+      </div>
+      <div class="text" id="text"></div>
+      <div class="media" id="media"></div>
+      <div class="actions" id="actions">
+        <span class="action"><svg viewBox="0 0 24 24"><path d="M12 20.5s-7-4.4-9.2-8.6C1.2 8.6 3 4.5 7 4.5c2.1 0 3.6 1.2 5 3 1.4-1.8 2.9-3 5-3 4 0 5.8 4.1 4.2 7.4-2.2 4.2-9.2 8.6-9.2 8.6z"/></svg><span id="likes"></span></span>
+        <span class="action"><svg viewBox="0 0 24 24"><path d="M3.3 16.1a9 9 0 1 1 3.6 3.6L3 20.8z"/></svg><span id="replies"></span></span>
+        <span class="action"><svg viewBox="0 0 24 24"><path d="M17 2.5l3 3-3 3M4 11.5v-2a4 4 0 0 1 4-4h12M7 21.5l-3-3 3-3M20 12.5v2a4 4 0 0 1-4 4H4"/></svg></span>
+        <span class="action"><svg viewBox="0 0 24 24"><path d="M21.5 2.5L10 13.5M21.5 2.5l-7 19-4.5-8-8-4.5z"/></svg></span>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  const MENTION = /(@[\w.]+|#[\p{L}\p{N}_]+)/u;
+
+  function fillText(el, text) {
+    el.textContent = "";
+    for (const part of text.split(MENTION)) {
+      if (!part) continue;
+      if (MENTION.test(part)) {
+        const s = document.createElement("span");
+        s.className = part.startsWith("@") ? "mention who" : "mention";
+        s.textContent = part;
+        el.appendChild(s);
+      } else {
+        el.appendChild(document.createTextNode(part));
+      }
+    }
+  }
+
+  function setVisible(el, on) { el.classList.toggle("hidden", !on); }
+
+  window.renderCard = async (d) => {
+    const root = document.documentElement;
+    root.dataset.theme = d.theme;
+    root.dataset.identity = d.identity;
+    root.style.setProperty("--card-w", d.cardWidth + "px");
+    root.style.setProperty("--media-h", Math.round(d.maxHeight * 0.45) + "px");
+
+    const avatar = document.getElementById("avatar");
+    avatar.textContent = "";
+    if (d.avatar) {
+      const img = new Image();
+      img.src = d.avatar;
+      avatar.appendChild(img);
+      await img.decode().catch(() => { img.remove(); });
+    }
+    if (!avatar.firstChild) {
+      const s = document.createElement("span");
+      s.textContent = (d.username || "?").slice(0, 1).toUpperCase();
+      avatar.appendChild(s);
+    }
+
+    document.getElementById("username").textContent = d.username;
+    setVisible(document.getElementById("badge"), d.verified);
+    const pill = document.getElementById("pill");
+    pill.textContent = d.pill || "";
+    setVisible(pill, !!d.pill);
+    document.getElementById("time").textContent = d.time || "";
+    fillText(document.getElementById("text"), d.text);
+    setVisible(document.getElementById("text"), !!d.text);
+
+    const media = document.getElementById("media");
+    media.textContent = "";
+    if (d.media) {
+      const img = new Image();
+      img.src = d.media;
+      media.appendChild(img);
+      await img.decode().catch(() => { img.remove(); });
+    }
+    setVisible(media, !!media.firstChild);
+
+    document.getElementById("likes").textContent = d.likes || "";
+    document.getElementById("replies").textContent = d.replies || "";
+    setVisible(document.getElementById("actions"), d.showActions);
+
+    await document.fonts.ready;
+
+    // Shrink text until the card fits; then drop the image; then clamp lines.
+    const card = document.getElementById("card");
+    const text = document.getElementById("text");
+    text.removeAttribute("style");
+    let fs = d.fontSize;
+    root.style.setProperty("--fs", fs + "px");
+    while (card.offsetHeight > d.maxHeight && fs > d.minFontSize) {
+      fs = Math.max(d.minFontSize, fs - 0.5);
+      root.style.setProperty("--fs", fs + "px");
+    }
+    let mediaDropped = false, clampedLines = 0;
+    if (card.offsetHeight > d.maxHeight && media.firstChild) {
+      setVisible(media, false);
+      mediaDropped = true;
+    }
+    if (card.offsetHeight > d.maxHeight) {
+      const lh = parseFloat(getComputedStyle(text).lineHeight);
+      const over = card.offsetHeight - d.maxHeight;
+      clampedLines = Math.max(1, Math.floor((text.offsetHeight - over) / lh));
+      Object.assign(text.style, { display: "-webkit-box", webkitBoxOrient: "vertical", overflow: "hidden" });
+      text.style.webkitLineClamp = String(clampedLines);
+    }
+    return { fontSize: fs, mediaDropped, clampedLines, height: card.offsetHeight };
+  };
+</script>
+</body>
+</html>

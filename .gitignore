@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# local config holds the Gemini API key
+config.yaml
+config.json
+cookies*.json
+cookies*.txt
+
+# runtime data
+cache/
+work/
+output/
+profiles/
+models/
+logs/

@@ -1,0 +1,69 @@
+language: vi
+ffmpeg_path: null
+cache_dir: cache
+work_dir: work
+output_dir: output
+fetch:
+  headless: true
+  profile_dir: null
+  cookies_file: null
+  max_scrolls: 12
+  scroll_pause_s: 1.5
+  timeout_s: 45.0
+  retries: 2
+selection:
+  top_comments: 5
+  op_replies: 2
+  min_chars: 3
+  max_chars: 400
+  skip_links: true
+  skip_emoji_only: true
+  include_self_thread: false
+  op_reply_with_parent: true
+  review_before_tts: false
+tts:
+  provider: edge
+  fallback:
+  - edge
+  - piper
+  voice: vi-VN-HoaiMyNeural
+  op_voice: vi-VN-NamMinhNeural
+  random_voice_per_author: true
+  speed: 1.1
+  piper_models_dir: models/piper
+translate:
+  enabled: false
+  model: gemini-3.5-flash-lite
+  api_key: ''
+video:
+  aspect: '9:16'
+  fps: 30
+  background: null
+  random_start: true
+  card_position: center
+  animation: fade
+  animation_s: 0.25
+  subtitles: false
+  lead_in_s: 0.2
+  pre_roll_s: 0.15
+  gap_s: 0.35
+  tail_s: 0.8
+  crf: 20
+  preset: veryfast
+audio:
+  music_enabled: true
+  music: null
+  music_volume: 20
+  sfx_enabled: true
+  sfx_dir: null
+  sfx_volume: 40
+  music_fade_out_s: 2.0
+card:
+  theme: dark
+  identity: show
+  width_portrait: 0.88
+  width_landscape: 0.55
+  max_height: 0.8
+  font_scale: 1.0
+  show_media: true
+  show_counts: true
