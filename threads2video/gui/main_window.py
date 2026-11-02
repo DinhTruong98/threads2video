@@ -101,9 +101,9 @@ class MainWindow(QMainWindow):
         self.job_videos: dict[int, Path] = {}
         self.job_failed: dict[int, str] = {}
         self.current_job = 0
-        self.player = QMediaPlayer(self)
-        self.audio_out = QAudioOutput(self)
-        self.player.setAudioOutput(self.audio_out)
+        # Created on first preview: Qt's audio backend is slow to start and can crash without a sound device.
+        self.player: QMediaPlayer | None = None
+        self.audio_out: QAudioOutput | None = None
 
         self.setWindowTitle("Threads → Short Video")
         self.resize(980, 860)
@@ -380,8 +380,13 @@ class MainWindow(QMainWindow):
             text = f"⚠ {text}"
         self.log_view.appendPlainText(text)
 
-    def _play(self, path: Path) -> None:
+    def _play(self, path: Path, volume: float = 1.0) -> None:
+        if self.player is None:
+            self.player = QMediaPlayer(self)
+            self.audio_out = QAudioOutput(self)
+            self.player.setAudioOutput(self.audio_out)
         self.player.stop()
+        self.audio_out.setVolume(volume)
         self.player.setSource(QUrl.fromLocalFile(str(path)))
         self.player.play()
 
@@ -479,12 +484,7 @@ class MainWindow(QMainWindow):
             return pick_media(cfg.audio.sfx_dir, AUDIO_EXTS, random.Random()) or default_pop(
                 find_ffmpeg(cfg.ffmpeg_path), cfg.cache_dir)
 
-        def play(path: Path) -> None:
-            self.audio_out.setVolume(cfg.audio.sfx_volume / 100)
-            self._play(path)
-            self.player.mediaStatusChanged.connect(lambda *_: self.audio_out.setVolume(1.0))
-
-        self._run_task(Task(pick), play)
+        self._run_task(Task(pick), lambda path: self._play(path, cfg.audio.sfx_volume / 100))
 
     def _download_piper(self) -> None:
         cfg = self._read()
