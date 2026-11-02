@@ -68,17 +68,20 @@ def _load_cookies(path: Path) -> list[dict]:
 @contextmanager
 def _context(cfg: FetchConfig, *, headless: bool | None = None) -> Iterator[BrowserContext]:
     headless = cfg.headless if headless is None else headless
+    # A tall fixed viewport loads more replies per scroll, but in a visible window
+    # it cuts the page off below the screen (e.g. the login form), so follow the window.
+    view: dict[str, Any] = {"viewport": VIEWPORT} if headless else {"no_viewport": True}
     browser_env.configure()
     with sync_playwright() as pw:
         if cfg.profile_dir:
             Path(cfg.profile_dir).mkdir(parents=True, exist_ok=True)
             ctx = browser_env.launch_persistent(
-                pw, str(cfg.profile_dir), headless=headless, viewport=VIEWPORT, locale="en-US"
+                pw, str(cfg.profile_dir), headless=headless, locale="en-US", **view
             )
             browser = None
         else:
             browser = browser_env.launch(pw, headless=headless)
-            ctx = browser.new_context(viewport=VIEWPORT, locale="en-US")
+            ctx = browser.new_context(locale="en-US", **view)
         try:
             if cfg.cookies_file:
                 cookies = _load_cookies(Path(cfg.cookies_file))
