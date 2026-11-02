@@ -1,7 +1,7 @@
 """Application settings: one pydantic model, persisted as YAML (or JSON by suffix).
 
 Secrets (the Gemini API key) live only in the user's local config file, which is
-git-ignored, or in the GEMINI_API_KEY environment variable.
+git-ignored, or in the VERTEX_API_KEY / GEMINI_API_KEY environment variable.
 """
 
 from __future__ import annotations
@@ -12,11 +12,17 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class _Section(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True)
+
+    @field_validator("*")
+    @classmethod
+    def _expand_home(cls, v):
+        # "~/Movies/..." typed or pasted into a path field means the user's home folder.
+        return v.expanduser() if isinstance(v, Path) else v
 
 
 class FetchConfig(_Section):
@@ -58,8 +64,20 @@ class TTSConfig(_Section):
 
 class TranslateConfig(_Section):
     enabled: bool = False
+    # Where the model runs (also for the AI step): "vertex" = Vertex AI API key, "gemini" = Gemini API key.
+    service: Literal["vertex", "gemini"] = "vertex"
     model: str = "gemini-3.5-flash-lite"
     api_key: str = Field("", repr=False)
+
+
+class AIConfig(_Section):
+    # Gemini (key and model from the translate section) reads the whole thread at once.
+    # Rewrite abbreviations/teencode into full words for the voice ("ko" → "không", "T" → "tao").
+    speech_text: bool = False
+    # Pick a reaction sound (laugh, gasp, aww, ...) for comments where an audience would react.
+    reactions: bool = False
+    # Send post/comment images too, so jokes that live in a picture are understood.
+    use_images: bool = True
 
 
 class VideoConfig(_Section):
@@ -79,6 +97,8 @@ class VideoConfig(_Section):
     pre_roll_s: float = Field(0.15, ge=0)
     gap_s: float = Field(0.35, ge=0)
     tail_s: float = Field(0.8, ge=0)
+    # Extra pause after a comment that gets a reaction sound, so the laugh lands before the next card.
+    reaction_pause_s: float = Field(1.0, ge=0, le=5)
     crf: int = Field(20, ge=0, le=51)
     preset: Literal["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow"] = "veryfast"
 
@@ -95,6 +115,10 @@ class AudioConfig(_Section):
     # A file or folder; empty uses the built-in pop.
     sfx_dir: Path | None = None
     sfx_volume: int = Field(40, ge=0, le=100)
+    # Reaction sounds picked by the AI step (ai.reactions). Built-in CC0 sounds are used for
+    # moods with no files in reactions_dir/<mood>/ (laugh, rimshot, gasp, aww, applause, crickets, fail, wow).
+    reactions_dir: Path | None = None
+    reaction_volume: int = Field(60, ge=0, le=100)
     music_fade_out_s: float = Field(2.0, ge=0)
 
 
@@ -124,6 +148,7 @@ class AppConfig(_Section):
     selection: SelectionConfig = SelectionConfig()
     tts: TTSConfig = TTSConfig()
     translate: TranslateConfig = TranslateConfig()
+    ai: AIConfig = AIConfig()
     video: VideoConfig = VideoConfig()
     audio: AudioConfig = AudioConfig()
     card: CardConfig = CardConfig()
@@ -151,7 +176,7 @@ def load_config(path: Path | str | None, defaults: AppConfig | None = None) -> A
     if defaults is not None:
         data = _merge(defaults.model_dump(mode="json"), data)
     cfg = AppConfig.model_validate(data)
-    if key := os.environ.get("GEMINI_API_KEY"):
+    if key := os.environ.get("VERTEX_API_KEY" if cfg.translate.service == "vertex" else "GEMINI_API_KEY"):
         cfg.translate.api_key = key
     return cfg
 

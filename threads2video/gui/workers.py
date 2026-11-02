@@ -12,7 +12,7 @@ import threading
 import traceback
 from typing import Any, Callable
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, Qt, QThread, Signal
 
 from ..config import AppConfig
 from ..ffmpeg import FFmpegCancelled
@@ -22,7 +22,7 @@ from ..pipeline import STAGES, JobCancelled, JobResult, run_job
 log = logging.getLogger(__name__)
 
 # Rough share of total time per stage, for one overall progress bar.
-STAGE_WEIGHTS = {"fetch": 10, "select": 2, "translate": 5, "tts": 30, "render": 10, "compose": 43}
+STAGE_WEIGHTS = {"fetch": 10, "select": 2, "translate": 5, "ai": 5, "tts": 30, "render": 10, "compose": 38}
 
 
 def overall_progress(stage: str, fraction: float) -> float:
@@ -59,8 +59,11 @@ class Task(QObject):
         super().__init__()
         self.fn, self.args, self.with_progress = fn, args, with_progress
         self.thread = QThread()
-        self.moveToThread(self.thread)
-        self.thread.started.connect(self._run)
+        # The Task stays on the UI thread and only _run executes on the worker thread, so the
+        # signals it emits there are queued to the UI thread for plain-function callbacks.
+        # (Moved to the worker, Qt would call them on the worker: a dialog opened there aborts
+        # the app on macOS.)
+        self.thread.started.connect(self._run, Qt.DirectConnection)
 
     def _run(self) -> None:
         try:

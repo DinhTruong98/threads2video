@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel, QListWidget,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel, QListWidget,
                                QListWidgetItem, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea,
                                QVBoxLayout, QWidget)
 
+from ..enrich import REACTIONS
 from ..models import Segment
 from ..render.cards import compact_count
 from .workers import Task
@@ -15,14 +16,14 @@ KIND_LABEL = {"post": "Post", "self_thread": "Post (cont.)", "reply": "Comment",
 
 
 class ReviewDialog(QDialog):
-    """Edit the text that will be read and shown, and drop segments, before TTS."""
+    """Edit the text shown on each card and what is read aloud, pick reaction sounds, drop segments."""
 
     def __init__(self, segments: list[Segment], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Review texts before reading")
         self.resize(760, 720)
         self.segments = segments
-        self.rows: list[tuple[QCheckBox, QPlainTextEdit]] = []
+        self.rows: list[tuple[QCheckBox, QPlainTextEdit, QPlainTextEdit | None, QComboBox]] = []
 
         body = QWidget()
         col = QVBoxLayout(body)
@@ -37,6 +38,12 @@ class ReviewDialog(QDialog):
             include.setEnabled(seg.kind != "post")  # the post itself always stays
             head.addWidget(include)
             head.addStretch()
+            reaction = QComboBox()
+            reaction.addItem("No reaction sound", None)
+            for mood in REACTIONS:
+                reaction.addItem(f"Reaction: {mood}", mood)
+            reaction.setCurrentIndex(max(0, reaction.findData(seg.reaction)))
+            head.addWidget(reaction)
             lay.addLayout(head)
             if seg.text_original.strip() != seg.text.strip():
                 orig = QLabel(seg.text_original)
@@ -47,8 +54,15 @@ class ReviewDialog(QDialog):
             edit = QPlainTextEdit(seg.text)
             edit.setFixedHeight(max(60, min(200, 22 * (seg.text.count("\n") + len(seg.text) // 70 + 2))))
             lay.addWidget(edit)
+            speech = None
+            if seg.speech:
+                # The AI step wrote abbreviations out in full; that version is what gets read.
+                lay.addWidget(QLabel("Read aloud as:"))
+                speech = QPlainTextEdit(seg.speech)
+                speech.setFixedHeight(edit.height())
+                lay.addWidget(speech)
             col.addWidget(frame)
-            self.rows.append((include, edit))
+            self.rows.append((include, edit, speech, reaction))
         col.addStretch()
 
         scroll = QScrollArea()
@@ -60,13 +74,20 @@ class ReviewDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         outer = QVBoxLayout(self)
-        outer.addWidget(QLabel("Edit what is read aloud and shown on each card. Uncheck comments to drop them."))
+        outer.addWidget(QLabel("Edit what is shown on each card (and what is read aloud, when the AI rewrote it), "
+                               "pick reaction sounds, and uncheck comments to drop them."))
         outer.addWidget(scroll)
         outer.addWidget(buttons)
 
     def result_segments(self) -> list[Segment]:
-        return [seg.model_copy(update={"text": edit.toPlainText().strip()})
-                for seg, (include, edit) in zip(self.segments, self.rows) if include.isChecked()]
+        out = []
+        for seg, (include, edit, speech, reaction) in zip(self.segments, self.rows):
+            if include.isChecked():
+                text = edit.toPlainText().strip()
+                spoken = speech.toPlainText().strip() if speech else None
+                out.append(seg.model_copy(update={"text": text, "speech": spoken if spoken and spoken != text else None,
+                                                  "reaction": reaction.currentData()}))
+        return out
 
 
 class PiperDownloadDialog(QDialog):

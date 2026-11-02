@@ -42,6 +42,17 @@ def pick_media(path: Path | None, exts: set[str], rng: random.Random) -> Path | 
     return None
 
 
+REACTIONS_DIR = Path(__file__).parent / "reactions"
+
+
+def pick_reaction(mood: str, user_dir: Path | None, rng: random.Random) -> Path | None:
+    """A sound for a mood: from user_dir/<mood>/ when it has any, else the built-in CC0 set."""
+    if user_dir and (Path(user_dir) / mood).is_dir():
+        if found := pick_media(Path(user_dir) / mood, AUDIO_EXTS, rng):
+            return found
+    return pick_media(REACTIONS_DIR / mood, AUDIO_EXTS, rng) if (REACTIONS_DIR / mood).is_dir() else None
+
+
 def default_pop(ffmpeg: FFmpeg, cache_dir: Path) -> Path:
     out = Path(cache_dir) / "sfx" / "pop.wav"
     if not out.exists():
@@ -116,14 +127,19 @@ def to_pcm_wav(ffmpeg: FFmpeg, src: Path, out_dir: Path) -> Path:
     return out
 
 
-def build_sfx(sounds: list[Path | None], timeline: Timeline, out: Path) -> Path:
-    """Mix one sound (48 kHz mono WAV) at each card's appearance; None = no sound for that card."""
+def build_sfx(sounds: list[Path | None], timeline: Timeline, out: Path, *,
+              after_speech: float | None = None) -> Path:
+    """Mix one sound (48 kHz mono WAV) per card; None = no sound for that card.
+
+    Sounds start when the card appears, or `after_speech` seconds after its narration ends
+    (reaction sounds: the audience laughs once the joke is told).
+    """
     track = np.zeros(round(timeline.total * SAMPLE_RATE), dtype=np.float32)
     for snd, e in zip(sounds, timeline.entries):
         if snd is None:
             continue
         pcm = read_pcm(snd)
-        start = round(e.card_in * SAMPLE_RATE)
+        start = round((e.card_in if after_speech is None else e.speech_end + after_speech) * SAMPLE_RATE)
         pcm = pcm[: max(0, len(track) - start)]
         track[start:start + len(pcm)] += pcm
     write_pcm(out, track)

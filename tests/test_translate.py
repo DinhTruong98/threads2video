@@ -64,7 +64,7 @@ def test_bad_batch_falls_back_to_single_requests():
 @pytest.mark.parametrize("status, error, match", [
     (400, "API key not valid. Please pass a valid API key.", "rejected the API key"),
     (404, "models/nope is not found", "not found"),
-    (403, "Permission denied on resource", "Gemini error 403"),
+    (403, "Permission denied on resource", "Gemini API error 403"),
 ])
 def test_errors_are_clear(status, error, match):
     tr = GeminiTranslator("k", model="nope", client=fake_gemini([], status=status, error=error))
@@ -104,3 +104,31 @@ def test_batches_and_language_names():
     assert all(len(b) <= 25 and sum(map(len, b)) <= 8000 for b in batches)
     assert language_name("vi") == "Vietnamese" and language_name("vi-VN") == "Vietnamese"
     assert language_name("xx") == "xx"
+
+
+def test_vertex_ai_endpoint_and_key_check():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((str(request.url), request.headers.get("x-goog-api-key")))
+        body = json.loads(request.content)
+        assert body["contents"][0]["role"] == "user"
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": '"ok"'}]}}]})
+
+    from threads2video.translate import GeminiClient
+
+    c = GeminiClient("vk", "gemini-x", service="vertex", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    models = c.list_models()  # Vertex API keys can't list models: a test request checks the key instead
+    assert seen == [("https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-x:generateContent", "vk")]
+    assert models[0] == "gemini-x"
+
+
+def test_vertex_errors_name_the_service():
+    def handler(request):
+        return httpx.Response(400, json={"error": {"message": "API key not valid. Please pass a valid API key."}})
+
+    from threads2video.translate import GeminiClient, TranslationError
+
+    c = GeminiClient("bad", service="vertex", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(TranslationError, match="Vertex AI rejected the API key"):
+        c.generate_json([{"text": "x"}], {"type": "STRING"})

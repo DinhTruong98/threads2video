@@ -104,8 +104,8 @@ def test_pipeline_translate_stage(tmp_path, monkeypatch):
         shutil.copy(f, raw / f.name)
 
     class FakeTranslator:
-        def __init__(self, key, model, cache_path=None):
-            assert key == "k" and model == "m"
+        def __init__(self, key, model, service="gemini", cache_path=None):
+            assert key == "k" and model == "m" and service == "vertex"
 
         def translate(self, texts, lang):
             return [f"[{lang}] {t}" for t in texts]
@@ -118,3 +118,20 @@ def test_pipeline_translate_stage(tmp_path, monkeypatch):
     assert all(s.text == f"[vi] {s.text_original}" for s in res.segments)
     saved = pipeline.load_segments(res.work_dir / "segments.json")
     assert saved[0].text.startswith("[vi] ")
+
+
+def test_task_callbacks_run_on_the_ui_thread(app):
+    # macOS aborts the app if a dialog opens off the main thread (seen with "Check key").
+    from PySide6.QtCore import QCoreApplication, QThread
+
+    from threads2video.gui.workers import Task
+
+    seen = {}
+    task = Task(lambda progress: progress(1, 2) or "ok", with_progress=True)
+    task.progress.connect(lambda a, b: seen.setdefault("progress", QThread.currentThread()))
+    task.done.connect(lambda r: seen.setdefault("done", QThread.currentThread()))
+    task.start()
+    task.thread.wait(5000)
+    for _ in range(20):
+        QCoreApplication.processEvents()
+    assert seen["done"] is app.thread() and seen["progress"] is app.thread()

@@ -50,3 +50,11 @@ def test_caption_chunks_cover_span_in_order():
 
 def test_caption_chunks_empty():
     assert split_caption_chunks("   ", 0, 1) == []
+
+
+def test_pause_after_a_segment_keeps_its_card_up():
+    plain = build_timeline([1.0, 2.0], lead_in=0, pre_roll=0, gap=0.5, tail=0)
+    paused = build_timeline([1.0, 2.0], lead_in=0, pre_roll=0, gap=0.5, tail=0, pauses=[1.0, 0.0])
+    assert paused.entries[0].speech_end == plain.entries[0].speech_end == 1.0
+    assert paused.entries[0].card_out == paused.entries[1].card_in == 2.5
+    assert paused.total == pytest.approx(plain.total + 1.0)

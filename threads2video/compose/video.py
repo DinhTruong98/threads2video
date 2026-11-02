@@ -18,12 +18,15 @@ from ..config import AppConfig
 from ..ffmpeg import FFmpeg
 from ..models import Segment
 from ..tts.text import clean_for_speech
-from .audio import AUDIO_EXTS, VIDEO_EXTS, build_narration, build_sfx, default_pop, pick_media, to_pcm_wav
+from .audio import (AUDIO_EXTS, VIDEO_EXTS, build_narration, build_sfx, default_pop, pick_media, pick_reaction,
+                    to_pcm_wav)
 from .timeline import Timeline, build_timeline, split_caption_chunks
 
 log = logging.getLogger(__name__)
 
 MUSIC_FADE_IN_S = 0.5
+# A reaction sound starts this long after the comment's narration ends.
+REACTION_DELAY_S = 0.1
 # Slide-in distance as a fraction of the frame height.
 SLIDE_FRACTION = 0.04
 
@@ -57,6 +60,8 @@ class ComposePlan:
     animation_s: float = 0.25
     crf: int = 20
     preset: str = "veryfast"
+    reactions: Path | None = None
+    reaction_volume: float = 0.6
 
 
 def _f(x: float) -> str:
@@ -102,6 +107,11 @@ def build_command(plan: ComposePlan, out: Path) -> list[str]:
         args += ["-i", str(plan.sfx)]
         graph.append(f"[{n_in}:a]{stereo},volume={plan.sfx_volume:.3f}[sfx]")
         mix.append("[sfx]")
+        n_in += 1
+    if plan.reactions is not None:
+        args += ["-i", str(plan.reactions)]
+        graph.append(f"[{n_in}:a]{stereo},volume={plan.reaction_volume:.3f}[rea]")
+        mix.append("[rea]")
         n_in += 1
     if plan.music is not None:
         args += ["-stream_loop", "-1", "-i", str(plan.music)]
@@ -154,8 +164,13 @@ def plan_composition(segments: list[Segment], cfg: AppConfig, work_dir: Path, ff
     if missing:
         raise ValueError(f"Segments {missing} have no audio or card yet; run the tts and render stages first")
     v, a = cfg.video, cfg.audio
+    reaction_files = [pick_reaction(s.reaction, a.reactions_dir, rng) if s.reaction else None for s in segments]
+    for s, f in zip(segments, reaction_files):
+        if s.reaction and f is None:
+            log.warning("No sound for reaction %r; skipping it", s.reaction)
     timeline = build_timeline([s.duration for s in segments], lead_in=v.lead_in_s, pre_roll=v.pre_roll_s,
-                              gap=v.gap_s, tail=v.tail_s)
+                              gap=v.gap_s, tail=v.tail_s,
+                              pauses=[v.reaction_pause_s if f else 0.0 for f in reaction_files])
     work_dir.mkdir(parents=True, exist_ok=True)
 
     narration = build_narration([Path(s.audio) for s in segments], timeline, work_dir / "narration.wav")
@@ -173,15 +188,25 @@ def plan_composition(segments: list[Segment], cfg: AppConfig, work_dir: Path, ff
         sounds = [to_pcm_wav(ffmpeg, p, work_dir / "sfx") for p in picks]
         sfx = build_sfx(sounds, timeline, work_dir / "sfx.wav")
 
+    reactions = None
+    if any(reaction_files):
+        sounds = [to_pcm_wav(ffmpeg, f, work_dir / "reactions") if f else None for f in reaction_files]
+        reactions = build_sfx(sounds, timeline, work_dir / "reactions.wav", after_speech=REACTION_DELAY_S)
+        log.info("Reaction sounds: %s", ", ".join(f"{i}:{s.reaction}" for i, s in enumerate(segments) if s.reaction))
+
     music = None
     if a.music_enabled:
         music = pick_media(a.music, AUDIO_EXTS, rng)
-        if music is None:
+        if music is None and a.music:
+            log.warning("Background music %s not found or has no audio files; continuing without", a.music)
+        elif music is None:
             log.info("No background music configured (audio.music); continuing without")
 
     background = pick_media(v.background, VIDEO_EXTS, rng)
     offset = 0.0
-    if background is None:
+    if background is None and v.background:
+        log.warning("Background video %s not found or has no video files; using a generated gradient", v.background)
+    elif background is None:
         log.info("No background video configured (video.background); using a generated gradient")
     elif v.random_start:
         bg_dur = ffmpeg.duration(background)
@@ -197,7 +222,7 @@ def plan_composition(segments: list[Segment], cfg: AppConfig, work_dir: Path, ff
         if render_captions is None:
             from ..render.captions import render_captions
         chunks = [c for s, e in zip(segments, timeline.entries)
-                  for c in split_caption_chunks(clean_for_speech(s.text), e.speech_start, e.speech_end)]
+                  for c in split_caption_chunks(clean_for_speech(s.speech or s.text), e.speech_start, e.speech_end)]
         images = render_captions([c[0] for c in chunks], work_dir / "captions", frame_size=v.size)
         captions = [Overlay(img, start, end, "(W-w)/2", caption_y(v.card_position), animated=False)
                     for img, (_, start, end) in zip(images, chunks)]
@@ -205,6 +230,7 @@ def plan_composition(segments: list[Segment], cfg: AppConfig, work_dir: Path, ff
     return ComposePlan(
         size=v.size, fps=v.fps, timeline=timeline,
         narration=narration, sfx=sfx, sfx_volume=a.sfx_volume / 100,
+        reactions=reactions, reaction_volume=a.reaction_volume / 100,
         music=music, music_volume=a.music_volume / 100, music_fade_out=a.music_fade_out_s,
         background=background, background_offset=offset,
         cards=cards, captions=captions,

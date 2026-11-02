@@ -35,8 +35,13 @@ tts:
   vieneu_models_dir: models/vieneu
 translate:
   enabled: false
+  service: vertex
   model: gemini-3.5-flash-lite
   api_key: ''
+ai:
+  speech_text: false
+  reactions: false
+  use_images: true
 video:
   aspect: '9:16'
   fps: 30
@@ -50,6 +55,7 @@ video:
   pre_roll_s: 0.15
   gap_s: 0.35
   tail_s: 0.8
+  reaction_pause_s: 1.0
   crf: 20
   preset: veryfast
 audio:
@@ -59,6 +65,8 @@ audio:
   sfx_enabled: true
   sfx_dir: null
   sfx_volume: 40
+  reactions_dir: null
+  reaction_volume: 60
   music_fade_out_s: 2.0
 card:
   theme: dark

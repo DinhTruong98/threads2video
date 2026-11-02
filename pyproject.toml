@@ -36,6 +36,7 @@ include = ["threads2video*"]
 
 [tool.setuptools.package-data]
 "threads2video.render" = ["templates/*"]
+"threads2video.compose" = ["reactions/*.md", "reactions/*/*.mp3"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

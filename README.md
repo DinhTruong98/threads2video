@@ -5,7 +5,7 @@ Turns a Threads post (threads.com URL) into a narrated short video for TikTok, R
 - The post and its top comments, plus the author's own replies, are read aloud by TTS.
 - Each one appears as a Threads-style card, timed to its narration.
 - Everything plays over a background video, with music and a "pop" as each card appears.
-- Texts can be translated with Gemini first. Vietnamese is the default.
+- Texts can be translated first, and AI can write out abbreviations and add reaction sounds (Gemini models on Vertex AI or the Gemini API). Vietnamese is the default.
 
 It's one click in the desktop app or one command in the terminal, and you can queue many posts at once.
 
@@ -60,7 +60,7 @@ threads2video-gui            # or: python -m threads2video.gui
       - sound effect file or folder, volume and preview button
       - voice preview, "Download Piper voice", "Download VieNeu model"
       - background music on/off
-      - Gemini translation: on/off, API key, model, "Check key / list models"
+      - AI (Vertex AI or Gemini API): translation, abbreviations, reaction sounds; API key, model, "Check key"
 4. Press **Generate video**.
 
 While it runs:
@@ -104,12 +104,12 @@ Start from [`config.example.yaml`](config.example.yaml): copy it to `config.yaml
 | Stage | Output |
 |---|---|
 | fetch | `cache/threads/<code>/raw/*.json` (every captured payload) and `thread.json` |
-| select / translate | `work/<code>/segments.json` |
+| select / translate / ai | `work/<code>/segments.json` (`speech` and `reaction` per segment after the AI step) |
 | tts | `work/<code>/audio/NN_<id>.wav` (48 kHz mono, silence trimmed, exact durations) |
 | render | `work/<code>/cards/NN_<id>.png` (transparent cards) |
-| compose | `work/<code>/compose/` (narration, SFX and captions), then `output/<user>_<code>_9x16.mp4` (H.264/AAC) |
+| compose | `work/<code>/compose/` (narration, SFX, reaction sounds and captions), then `output/<user>_<code>_9x16.mp4` (H.264/AAC) |
 
-Unchanged audio and translations are reused on re-runs.
+Unchanged audio, translations and AI answers are reused on re-runs.
 
 ---
 
@@ -145,7 +145,22 @@ All settings live in one YAML file (or JSON), and the GUI edits the same file. M
 | `language` | `vi` | Reading language: TTS voices and the translation target |
 | `translate.enabled` | false | Translate the texts before reading |
 | `translate.model` | `gemini-3.5-flash-lite` | Gemini model |
-| `translate.api_key` | — | Your key, or set the `GEMINI_API_KEY` environment variable |
+| `translate.service` | `vertex` | `vertex`: Vertex AI with a Google Cloud API key (express mode). `gemini`: Gemini API key from Google AI Studio. Same models, same features |
+| `translate.api_key` | — | Your key, or set `VERTEX_API_KEY` / `GEMINI_API_KEY` (matching the service) |
+
+**AI** (`ai`, uses the service, key and model above)
+
+The model reads the whole thread in one request (in video order, so it has context) and the answer is cached.
+If it fails, the video is made without it.
+
+| Option | Default | Effect |
+|---|---|---|
+| `ai.speech_text` | false | Write out abbreviations and teencode for the voice ("T nói r, ko tin" → "Tao nói rồi, không tin"). The card keeps the original text; review shows both. |
+| `ai.reactions` | false | Pick a reaction sound where an audience would react: `laugh`, `rimshot`, `gasp`, `aww`, `applause`, `wow`, `crickets`, `fail` (sad trombone) |
+| `ai.use_images` | true | Send post/comment images too (up to 8), since the joke is often in the picture |
+| `audio.reaction_volume` | 60 | Reaction sound volume |
+| `audio.reactions_dir` | — | Your own sounds in `<dir>/<mood>/`; moods without files use the built-in CC0 set |
+| `video.reaction_pause_s` | 1.0 | Extra pause after a comment with a reaction, so it lands before the next card |
 
 **Cards** (`card`)
 
@@ -216,7 +231,7 @@ Later fetches reuse the session. Using a secondary account is recommended. Autom
 | "Post … not found" | The post is private or deleted, or Threads showed a login wall. Log in (see above). Check `cache/threads/<code>/raw/` to see what Threads returned. |
 | Only ~10 replies; no OP replies | Expected when logged out. Log in. |
 | Threads changed its page and fetching breaks | The raw JSON is always saved. Re-parse it with `--from-cache` after updating `threads2video/fetcher/parser.py`. |
-| "Gemini rejected the API key" / "model not found" | Use **Check key / list models** and pick a model from the list. |
+| "Vertex AI rejected the API key" / "model not found" | Check that **AI service** matches your key (a Vertex AI key with Vertex AI), use **Check key**, and try another model name. |
 | edge-tts keeps failing | Download the VieNeu model: Edge then falls back to it automatically. Or pick VieNeu-TTS as the engine. |
 | "The Threads login window is still open" | The login browser and a job can't use the browser profile at the same time. Close the login window, then start the job. |
 | Emoji show as boxes on cards (Linux) | Install `fonts-noto-color-emoji`. |
@@ -279,6 +294,7 @@ tools/          make_fixture.py
   - PySide6 / Qt: LGPL-3.0
   - Playwright: Apache-2.0
   - FFmpeg builds such as Gyan's: GPL
+- **Reaction sounds** (`threads2video/compose/reactions/`) are CC0 from Freesound; see `CREDITS.md` there. Rebuild them with `python tools/fetch_reactions.py`.
 - **Piper voices** have their own licenses; see each voice's `MODEL_CARD`. `vi_VN-vais1000-medium` is trained on the VAIS-1000 corpus (CC BY 4.0).
 - **Unofficial services:**
   - Threads data is fetched from its web page, not an official API.

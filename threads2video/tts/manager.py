@@ -196,7 +196,7 @@ class TTSManager:
         for i, seg in enumerate(segments):
             if progress:
                 progress(i, len(segments), f"TTS {i + 1}/{len(segments)} ({provider.name})")
-            text = clean_for_speech(seg.text)
+            text = clean_for_speech(seg.speech or seg.text)
             slot = assigner.slot(seg)
             out = out_dir / f"{i:02d}_{seg.id}.wav"
             meta_path = out.with_suffix(".json")

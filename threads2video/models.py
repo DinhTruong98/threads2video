@@ -78,6 +78,10 @@ class Segment(BaseModel):
     text_original: str
     # What is shown on the card and read aloud (translated and/or edited).
     text: str
+    # Filled by the AI step: the text as it should be spoken (abbreviations written out),
+    # read instead of `text` when set; and a reaction sound mood ("laugh", "gasp", ...).
+    speech: str | None = None
+    reaction: str | None = None
     # Filled by the TTS stage.
     voice: str | None = None
     audio: str | None = None

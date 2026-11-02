@@ -14,6 +14,7 @@ from typing import Callable
 
 from .compose import compose
 from .config import AppConfig
+from .enrich import enrich_segments
 from .fetcher import fetch_thread, load_cached_thread, parse_post_url
 from .fetcher.browser import thread_cache_dir
 from .ffmpeg import find_ffmpeg
@@ -25,7 +26,7 @@ from .tts import TTSManager
 
 log = logging.getLogger(__name__)
 
-STAGES = ["fetch", "select", "translate", "tts", "render", "compose"]
+STAGES = ["fetch", "select", "translate", "ai", "tts", "render", "compose"]
 Progress = Callable[[str, float, str], None]  # (stage, fraction 0..1, message)
 
 
@@ -63,7 +64,7 @@ def output_path(cfg: AppConfig, segments: list[Segment], code: str) -> Path:
 
 def translate_segments(segments: list[Segment], cfg: AppConfig) -> list[Segment]:
     """Replace each segment's text with its translation; text_original keeps the source."""
-    tr = GeminiTranslator(cfg.translate.api_key, cfg.translate.model,
+    tr = GeminiTranslator(cfg.translate.api_key, cfg.translate.model, service=cfg.translate.service,
                           cache_path=Path(cfg.cache_dir) / "translations.json")
     texts = tr.translate([s.text_original for s in segments], cfg.language)
     return [s.model_copy(update={"text": t}) for s, t in zip(segments, texts)]
@@ -115,6 +116,12 @@ def run_job(url: str, cfg: AppConfig, *, until: str = STAGES[-1], from_cache: bo
             result.segments = translate_segments(result.segments, cfg)
             save_segments(result.segments, seg_path)
         if until == "translate":
+            return result
+        if cfg.ai.speech_text or cfg.ai.reactions:
+            report("ai", 0, "AI: reading the thread")
+            result.segments = enrich_segments(result.segments, cfg, out)
+            save_segments(result.segments, seg_path)
+        if until == "ai":
             return result
         if cfg.selection.review_before_tts:
             edited = review(result.segments) if review else None

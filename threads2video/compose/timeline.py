@@ -1,6 +1,8 @@
 """Pure timing math: when each card appears, when its narration plays, when it leaves.
 
-    lead_in | card 0 in → pre_roll → speech 0 → gap | card 1 in → pre_roll → speech 1 → ... → tail
+    lead_in | card 0 in → pre_roll → speech 0 → [pause 0] → gap | card 1 in → pre_roll → speech 1 → ... → tail
+
+`pauses` adds time after a segment's narration (room for a reaction sound) while its card stays up.
 
 A card stays on screen until the next one appears (no empty frames between
 cards); the last card stays until the end of the video.
@@ -31,15 +33,16 @@ class Timeline:
 
 
 def build_timeline(durations: list[float], *, lead_in: float = 0.2, pre_roll: float = 0.15,
-                   gap: float = 0.35, tail: float = 0.8) -> Timeline:
+                   gap: float = 0.35, tail: float = 0.8, pauses: list[float] | None = None) -> Timeline:
     if not durations:
         raise ValueError("Nothing to compose: no segments")
     if any(d <= 0 for d in durations):
         raise ValueError(f"Segment durations must be positive: {durations}")
+    pauses = pauses or [0.0] * len(durations)
     starts, t = [], lead_in
-    for d in durations:
+    for d, p in zip(durations, pauses):
         starts.append(t)
-        t += pre_roll + d + gap
+        t += pre_roll + d + p + gap
     total = t - gap + tail
     entries = [
         TimelineEntry(

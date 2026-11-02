@@ -204,3 +204,64 @@ def test_encode_progress_and_cancel(tmp_path):
     ff.run_progress(["-f", "lavfi", "-i", "testsrc2=s=160x120:r=10:d=1", str(tmp_path / "y.mp4")], total=1,
                     progress=done.append)
     assert done[-1] == 1.0
+
+
+def test_reaction_sound_after_speech(tmp_path):
+    from threads2video.compose.audio import build_sfx, read_pcm, write_pcm
+
+    snd = tmp_path / "laugh.wav"
+    write_pcm(snd, tone(0.2))
+    tl = build_timeline([1.0, 1.0], lead_in=0.5, pre_roll=0.25, gap=0.5, tail=0.5, pauses=[1.0, 0.0])
+    track = read_pcm(build_sfx([snd, None], tl, tmp_path / "r.wav", after_speech=0.1))
+    first = np.flatnonzero(np.abs(track) > 0.01)[0] / SAMPLE_RATE
+    assert first == pytest.approx(tl.entries[0].speech_end + 0.1, abs=0.002)
+
+
+@needs_ffmpeg
+def test_end_to_end_with_ai_speech_and_reaction(tmp_path, chromium, monkeypatch):
+    from conftest import FakeTTS
+
+    from threads2video import pipeline
+    from threads2video.config import AppConfig
+
+    meta = json.loads((FIXTURE / "meta.json").read_text())
+    raw = tmp_path / "cache" / "threads" / "SAMPLE001" / "raw"
+    raw.mkdir(parents=True)
+    for f in FIXTURE.glob("0*.json"):
+        shutil.copy(f, raw / f.name)
+    cfg = AppConfig(cache_dir=tmp_path / "cache", work_dir=tmp_path / "work", output_dir=tmp_path / "out")
+    cfg.selection.top_comments = 2
+    cfg.tts.provider, cfg.tts.fallback = "piper", []
+    cfg.card.identity, cfg.card.show_media = "blur", False
+    cfg.video.preset = "ultrafast"
+    cfg.translate.api_key = "test-key"
+    cfg.ai.speech_text = cfg.ai.reactions = True
+    cfg.ai.use_images = False
+
+    class FakeGemini:
+        model = "fake"
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def generate_json(self, parts, schema, temperature=0.3):
+            n = parts[0]["text"].count('"i":')
+            return [{"i": i, "speech": "Câu đọc thử đã viết đầy đủ." if i == 1 else "", "reaction": "laugh" if i == 1
+                     else "none"} for i in range(n)]
+
+    tts = FakeTTS("piper", seconds_per_char=0.004)
+    monkeypatch.setattr("threads2video.tts.manager.default_providers", lambda _cfg: {"piper": tts})
+    monkeypatch.setattr("threads2video.enrich.GeminiClient", FakeGemini)
+    stages = []
+    res = pipeline.run_job(meta["url"], cfg, from_cache=True, progress=lambda st, f, m: stages.append(st))
+
+    assert "ai" in stages
+    assert res.segments[1].speech == "Câu đọc thử đã viết đầy đủ." and res.segments[1].reaction == "laugh"
+    assert any(text == "Câu đọc thử đã viết đầy đủ." for text, _ in tts.calls)  # the rewritten text is read
+    assert (res.work_dir / "compose" / "reactions.wav").exists()
+    expected = build_timeline([s.duration for s in res.segments], lead_in=cfg.video.lead_in_s,
+                              pre_roll=cfg.video.pre_roll_s, gap=cfg.video.gap_s, tail=cfg.video.tail_s,
+                              pauses=[cfg.video.reaction_pause_s if s.reaction else 0 for s in res.segments]).total
+    duration = float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                              "-of", "csv=p=0", str(res.video)]))
+    assert duration == pytest.approx(expected, abs=0.1)

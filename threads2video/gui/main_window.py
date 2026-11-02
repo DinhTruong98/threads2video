@@ -216,12 +216,20 @@ class MainWindow(QMainWindow):
         pr.addWidget(piper_btn)
         pr.addWidget(self.vieneu_btn)
         self.music_enabled = QCheckBox("Background music")
-        self.translate = QCheckBox("Translate with Gemini, then read")
+        self.translate = QCheckBox("AI: translate, then read")
+        self.ai_speech = QCheckBox("AI: write out abbreviations for reading (T → tao, ko → không, đc → được)")
+        self.ai_speech.setToolTip("The card keeps the original text; only what is read aloud changes")
+        self.ai_reactions = QCheckBox("AI: add reaction sounds (laugh, gasp, aww…) from comments and images")
+        self.ai_reactions.setToolTip("The AI reads the comments and their images and picks where an audience "
+                                     "would laugh, gasp, clap…")
+        reaction_vol_w, self.reaction_volume = _volume(60)
         self.api_key = QLineEdit()
         self.api_key.setEchoMode(QLineEdit.Password)
-        self.api_key.setPlaceholderText("Gemini API key (stored only in your local config file)")
+        self.api_key.setPlaceholderText("API key (stored only in your local config file)")
+        self.ai_service = _combo([("vertex", "Vertex AI (Google Cloud API key)"),
+                                  ("gemini", "Gemini API (Google AI Studio key)")])
         self.model = _combo([(m, m) for m in SUGGESTED_MODELS], editable=True)
-        check_btn = QPushButton("Check key / list models")
+        check_btn = QPushButton("Check key")
         check_btn.clicked.connect(self._check_gemini)
         model_row = QWidget()
         mr = QHBoxLayout(model_row)
@@ -238,8 +246,12 @@ class MainWindow(QMainWindow):
         lang.addRow("Voice preview", prev_row)
         lang.addRow("", self.music_enabled)
         lang.addRow("", self.translate)
-        lang.addRow("Gemini API key", self.api_key)
-        lang.addRow("Gemini model", model_row)
+        lang.addRow("", self.ai_speech)
+        lang.addRow("", self.ai_reactions)
+        lang.addRow("Reaction volume", reaction_vol_w)
+        lang.addRow("AI service", self.ai_service)
+        lang.addRow("API key", self.api_key)
+        lang.addRow("Model", model_row)
 
         settings = QWidget()
         col = QVBoxLayout(settings)
@@ -331,6 +343,10 @@ class MainWindow(QMainWindow):
         self.preview_text.setText(PREVIEW_TEXT.get(c.language, PREVIEW_TEXT["en"]))
         self.music_enabled.setChecked(c.audio.music_enabled)
         self.translate.setChecked(c.translate.enabled)
+        _set_combo(self.ai_service, c.translate.service)
+        self.ai_speech.setChecked(c.ai.speech_text)
+        self.ai_reactions.setChecked(c.ai.reactions)
+        self.reaction_volume.setValue(c.audio.reaction_volume)
         self.api_key.setText(c.translate.api_key)
         _set_combo(self.model, c.translate.model)
 
@@ -362,6 +378,10 @@ class MainWindow(QMainWindow):
         c.audio.sfx_volume = self.sfx_volume.value()
         c.audio.music_enabled = self.music_enabled.isChecked()
         c.translate.enabled = self.translate.isChecked()
+        c.translate.service = self.ai_service.currentData()
+        c.ai.speech_text = self.ai_speech.isChecked()
+        c.ai.reactions = self.ai_reactions.isChecked()
+        c.audio.reaction_volume = self.reaction_volume.value()
         c.translate.api_key = self.api_key.text().strip()
         c.translate.model = _combo_value(self.model)
         return c
@@ -541,7 +561,8 @@ class MainWindow(QMainWindow):
         def check() -> list[str]:
             from ..translate import GeminiTranslator
 
-            return GeminiTranslator(cfg.translate.api_key, cfg.translate.model).list_models()
+            return GeminiTranslator(cfg.translate.api_key, cfg.translate.model,
+                                    service=cfg.translate.service).list_models()
 
         def done(models: list[str]) -> None:
             current = _combo_value(self.model)
@@ -551,10 +572,13 @@ class MainWindow(QMainWindow):
                 self.model.addItem(m, m)
             _set_combo(self.model, current)
             ok = current in models
-            QMessageBox.information(self, "Gemini", f"API key works. {len(models)} models available."
-                                    + ("" if ok else f"\n\n⚠ '{current}' is not among them; pick another model."))
+            if cfg.translate.service == "vertex":
+                QMessageBox.information(self, "Vertex AI", f"API key works with model '{current}'.")
+            else:
+                QMessageBox.information(self, "Gemini API", f"API key works. {len(models)} models available."
+                                        + ("" if ok else f"\n\n⚠ '{current}' is not among them; pick another model."))
 
-        self._run_task(Task(check), done, lambda msg: QMessageBox.warning(self, "Gemini check failed", msg))
+        self._run_task(Task(check), done, lambda msg: QMessageBox.warning(self, "API key check failed", msg))
 
     def _login(self) -> None:
         cfg = self.save_settings()
@@ -606,8 +630,8 @@ class MainWindow(QMainWindow):
                                 + (f"\n\nNot a post URL: {bad[0]}" if bad else ""))
             return
         cfg = self.save_settings()
-        if cfg.translate.enabled and not cfg.translate.api_key:
-            QMessageBox.warning(self, "Gemini", "Translation is on but the Gemini API key is empty.")
+        if (cfg.translate.enabled or cfg.ai.speech_text or cfg.ai.reactions) and not cfg.translate.api_key:
+            QMessageBox.warning(self, "AI", "An AI option is on but the API key is empty.")
             return
         self.job_urls = urls
         self.job_videos: dict[int, Path] = {}

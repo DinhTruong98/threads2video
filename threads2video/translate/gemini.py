@@ -1,4 +1,7 @@
-"""Batch translation with the Gemini API (generateContent, JSON output).
+"""Gemini model client (generateContent, JSON output) and batch translation on top of it.
+
+Two services serve the same models with the same request format: Vertex AI with an API
+key ("express mode", aiplatform.googleapis.com) and the Gemini API (Google AI Studio).
 
 Called over plain HTTPS (httpx) rather than through an SDK, to keep the
 packaged app small. Texts are sent in batches as a JSON array and must come
@@ -20,6 +23,8 @@ import httpx
 log = logging.getLogger(__name__)
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+VERTEX_BASE = "https://aiplatform.googleapis.com/v1/publishers/google"
+SERVICES = {"vertex": "Vertex AI", "gemini": "Gemini API"}
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 SUGGESTED_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]
 MAX_BATCH_TEXTS = 25
@@ -77,11 +82,15 @@ class TranslationCache:
                 self.path.write_text(json.dumps(self._data, ensure_ascii=False), encoding="utf-8")
 
 
-class GeminiTranslator:
-    def __init__(self, api_key: str, model: str = DEFAULT_MODEL, *, cache_path: Path | None = None,
-                 client: httpx.Client | None = None, retries: int = 3, timeout: float = 60) -> None:
+class GeminiClient:
+    """Key, model, retries and JSON-mode generation; shared by translation and the AI enrich step."""
+
+    def __init__(self, api_key: str, model: str = DEFAULT_MODEL, *, service: str = "gemini",
+                 cache_path: Path | None = None, client: httpx.Client | None = None, retries: int = 3,
+                 timeout: float = 60) -> None:
+        self.service, self.name = service, SERVICES[service]
         if not api_key.strip():
-            raise TranslationError("Gemini API key is missing (set translate.api_key or GEMINI_API_KEY)")
+            raise TranslationError(f"{self.name} API key is missing (set translate.api_key)")
         self.api_key, self.model = api_key.strip(), model.strip().removeprefix("models/")
         self.client = client or httpx.Client(timeout=timeout)
         self.retries = retries
@@ -96,7 +105,7 @@ class GeminiTranslator:
                 resp = self.client.request(method, url, headers=headers, **kw)
             except httpx.HTTPError as e:
                 if attempt == self.retries:
-                    raise TranslationError(f"Network error talking to Gemini: {e}") from e
+                    raise TranslationError(f"Network error talking to {self.name}: {e}") from e
                 time.sleep(2 ** attempt)
                 continue
             if resp.status_code == 200:
@@ -104,18 +113,25 @@ class GeminiTranslator:
             detail = _error_message(resp)
             if resp.status_code in (429, 500, 502, 503, 504) and attempt < self.retries:
                 wait = float(resp.headers.get("retry-after") or 2 ** attempt)
-                log.warning("Gemini %d (%s); retrying in %.0fs", resp.status_code, detail, wait)
+                log.warning("%s %d (%s); retrying in %.0fs", self.name, resp.status_code, detail, wait)
                 time.sleep(min(wait, 60))
                 continue
             if resp.status_code in (400, 401, 403) and "API key" in detail:
-                raise TranslationError(f"Gemini rejected the API key: {detail}")
+                raise TranslationError(f"{self.name} rejected the API key: {detail}")
             if resp.status_code == 404:
-                raise TranslationError(f"Gemini model {self.model!r} not found; pick another model ({detail})")
-            raise TranslationError(f"Gemini error {resp.status_code}: {detail}")
+                raise TranslationError(f"{self.name} model {self.model!r} not found; pick another model ({detail})")
+            raise TranslationError(f"{self.name} error {resp.status_code}: {detail}")
         raise AssertionError("unreachable")
 
     def list_models(self) -> list[str]:
-        """Model ids usable with generateContent (also validates the key)."""
+        """Model ids usable with generateContent (also validates the key).
+
+        Vertex AI API keys cannot list models, so there a one-word test request checks the
+        key and the chosen model, and the suggested models are returned.
+        """
+        if self.service == "vertex":
+            self.generate_json([{"text": 'Reply with the JSON string "ok".'}], {"type": "STRING"})
+            return list(dict.fromkeys([self.model, *SUGGESTED_MODELS]))
         names, token = [], None
         while True:
             params = {"pageSize": 200, **({"pageToken": token} if token else {})}
@@ -127,25 +143,33 @@ class GeminiTranslator:
             if not token:
                 return names
 
-    def _generate(self, texts: list[str], lang: str) -> list[str]:
+    def generate_json(self, parts: list[dict], schema: dict, *, temperature: float = 0.3):
+        """One generateContent call whose answer must be JSON matching `schema`; returns it parsed.
+
+        `parts` are content parts: {"text": ...} or {"inlineData": {"mimeType", "data"}}.
+        """
         body = {
-            "contents": [{"role": "user", "parts": [{"text": PROMPT.format(
-                language=language_name(lang), count=len(texts), texts=json.dumps(texts, ensure_ascii=False))}]}],
-            "generationConfig": {
-                "temperature": 0.3,
-                "responseMimeType": "application/json",
-                "responseSchema": {"type": "ARRAY", "items": {"type": "STRING"}},
-            },
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"temperature": temperature, "responseMimeType": "application/json",
+                                 "responseSchema": schema},
         }
-        data = self._request("POST", f"{API_BASE}/models/{self.model}:generateContent", json=body)
+        base = VERTEX_BASE if self.service == "vertex" else API_BASE
+        data = self._request("POST", f"{base}/models/{self.model}:generateContent", json=body)
         try:
-            parts = data["candidates"][0]["content"]["parts"]
-            out = json.loads("".join(p.get("text", "") for p in parts))
+            out_parts = data["candidates"][0]["content"]["parts"]
+            return json.loads("".join(p.get("text", "") for p in out_parts))
         except (KeyError, IndexError, json.JSONDecodeError) as e:
             reason = (data.get("candidates") or [{}])[0].get("finishReason") or data.get("promptFeedback")
-            raise TranslationError(f"Unexpected Gemini response ({reason or e})") from e
+            raise TranslationError(f"Unexpected {self.name} response ({reason or e})") from e
+
+
+class GeminiTranslator(GeminiClient):
+    def _generate(self, texts: list[str], lang: str) -> list[str]:
+        prompt = PROMPT.format(language=language_name(lang), count=len(texts),
+                               texts=json.dumps(texts, ensure_ascii=False))
+        out = self.generate_json([{"text": prompt}], {"type": "ARRAY", "items": {"type": "STRING"}})
         if not isinstance(out, list) or len(out) != len(texts) or not all(isinstance(x, str) for x in out):
-            raise TranslationError(f"Gemini returned {len(out) if isinstance(out, list) else type(out).__name__} "
+            raise TranslationError(f"{self.name} returned {len(out) if isinstance(out, list) else type(out).__name__} "
                                    f"items for {len(texts)} texts")
         return out
 
