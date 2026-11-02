@@ -28,6 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--login", action="store_true", help="open a browser to log in to Threads (needs fetch.profile_dir)")
     p.add_argument("--download-piper-voice", metavar="KEY", nargs="?", const="",
                    help="download a Piper voice (no KEY: list voices for the configured language)")
+    p.add_argument("--download-vieneu", action="store_true",
+                   help="download the VieNeu-TTS Vietnamese model (~570 MB) into tts.vieneu_models_dir")
     p.add_argument("--install-browser", action="store_true", help="download the Chromium build Playwright needs")
     p.add_argument("-v", "--verbose", action="store_true")
     return p
@@ -69,10 +71,16 @@ def main(argv: list[str] | None = None) -> int:
         install_browser(print)
         return 0
     if args.login:
-        login_interactive(cfg.fetch)
-        return 0
+        return 0 if login_interactive(cfg.fetch) else 1
     if args.download_piper_voice is not None:
         return _piper_voices(cfg, args.download_piper_voice)
+    if args.download_vieneu:
+        from .tts.vieneu import download_model
+
+        download_model(cfg.tts.vieneu_models_dir,
+                       lambda done, total: print(f"\r  {done / 1e6:.0f} / {total / 1e6:.0f} MB", end="", flush=True))
+        print(f"\nSaved to {cfg.tts.vieneu_models_dir}")
+        return 0
     urls = list(args.urls)
     if args.urls_file:
         lines = args.urls_file.read_text(encoding="utf-8").splitlines()

@@ -24,6 +24,7 @@ selection:
 tts:
   provider: edge
   fallback:
+  - vieneu
   - edge
   - piper
   voice: vi-VN-HoaiMyNeural
@@ -31,6 +32,7 @@ tts:
   random_voice_per_author: true
   speed: 1.1
   piper_models_dir: models/piper
+  vieneu_models_dir: models/vieneu
 translate:
   enabled: false
   model: gemini-3.5-flash-lite

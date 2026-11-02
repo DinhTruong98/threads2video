@@ -26,7 +26,9 @@ class EdgeTTS(TTSProvider):
     name = "edge"
     # The service randomly returns "no audio" (30-60% for some words, e.g. names);
     # it is not rate limiting, so retry quickly and often with the same voice.
-    retries = 4
+    # Microsoft's service refuses some text/voice pairs every time ("No audio was received"),
+    # so a few quick retries catch the random failures and the rest go to the next provider.
+    retries = 2
     retry_delay = 0.5
     native_pitch = True
 

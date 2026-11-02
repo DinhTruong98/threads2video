@@ -65,3 +65,16 @@ def test_example_config_is_valid(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     cfg = load_config(EXAMPLE)
     assert cfg.translate.api_key == ""
+
+
+def test_settings_missing_from_an_older_file_come_from_defaults(tmp_path, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    path = tmp_path / "config.yaml"
+    path.write_text("tts:\n  provider: piper\n  piper_models_dir: /data/piper\nvideo:\n  background: null\n")
+    defaults = AppConfig()
+    defaults.tts.vieneu_models_dir = Path("/home/me/models/vieneu")
+    defaults.video.background = Path("/bg")
+    cfg = load_config(path, defaults)
+    assert cfg.tts.provider == "piper" and cfg.tts.piper_models_dir == Path("/data/piper")
+    assert cfg.tts.vieneu_models_dir == Path("/home/me/models/vieneu")  # added after the file was written
+    assert cfg.video.background is None  # explicit values in the file still win

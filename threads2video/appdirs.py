@@ -40,5 +40,6 @@ def gui_defaults() -> AppConfig:
     d = data_dir()
     cfg = AppConfig(cache_dir=d / "cache", work_dir=d / "work", output_dir=videos_dir())
     cfg.tts.piper_models_dir = d / "models" / "piper"
+    cfg.tts.vieneu_models_dir = d / "models" / "vieneu"
     cfg.fetch.profile_dir = d / "browser-profile"
     return cfg

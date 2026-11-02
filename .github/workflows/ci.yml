@@ -32,6 +32,10 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install ffmpeg -y --no-progress
       - run: python -m pip install -e ".[dev]"
+      - name: VieNeu-TTS (without its web UI)
+        run: |
+          python -m pip install --no-deps "vieneu>=3.8.3,<4"
+          python -m pip install -r packaging/vieneu-requirements.txt
       - name: Chromium for Playwright
         run: python -m playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium --no-shell
       # Tests run offline against the cached sample post (no Threads, TTS or Gemini access).
@@ -49,6 +53,10 @@ jobs:
       - name: Static FFmpeg to bundle
         run: choco install ffmpeg -y --no-progress
       - run: python -m pip install -e . pyinstaller
+      - name: VieNeu-TTS (without its web UI)
+        run: |
+          python -m pip install --no-deps "vieneu>=3.8.3,<4"
+          python -m pip install -r packaging/vieneu-requirements.txt
       - name: Build
         shell: pwsh
         run: |

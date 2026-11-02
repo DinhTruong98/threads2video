@@ -45,13 +45,15 @@ class SelectionConfig(_Section):
 
 
 class TTSConfig(_Section):
-    provider: Literal["edge", "piper", "capcut"] = "edge"
-    fallback: list[Literal["edge", "piper", "capcut"]] = ["edge", "piper"]
+    provider: Literal["edge", "vieneu", "piper", "capcut"] = "edge"
+    # Tried in order when the provider fails; a video is always read by a single provider.
+    fallback: list[Literal["edge", "vieneu", "piper", "capcut"]] = ["vieneu", "edge", "piper"]
     voice: str = "vi-VN-HoaiMyNeural"
     op_voice: str | None = "vi-VN-NamMinhNeural"
     random_voice_per_author: bool = True
     speed: float = Field(1.10, ge=0.5, le=2.0)
     piper_models_dir: Path = Path("models/piper")
+    vieneu_models_dir: Path = Path("models/vieneu")
 
 
 class TranslateConfig(_Section):
@@ -127,14 +129,27 @@ class AppConfig(_Section):
     card: CardConfig = CardConfig()
 
 
-def load_config(path: Path | str | None) -> AppConfig:
-    """Load config from YAML/JSON; a missing path yields defaults. Env vars override secrets."""
+def _merge(base: dict, over: dict) -> dict:
+    out = dict(base)
+    for k, v in over.items():
+        out[k] = _merge(base[k], v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+    return out
+
+
+def load_config(path: Path | str | None, defaults: AppConfig | None = None) -> AppConfig:
+    """Load config from YAML/JSON; a missing path yields defaults. Env vars override secrets.
+
+    Settings missing from the file come from `defaults` (e.g. the GUI's per-user paths),
+    so options added in a newer version get sensible values in an older config file.
+    """
     data: dict = {}
     if path is not None:
         p = Path(path)
         if p.exists():
             text = p.read_text(encoding="utf-8")
             data = (json.loads(text) if p.suffix == ".json" else yaml.safe_load(text)) or {}
+    if defaults is not None:
+        data = _merge(defaults.model_dump(mode="json"), data)
     cfg = AppConfig.model_validate(data)
     if key := os.environ.get("GEMINI_API_KEY"):
         cfg.translate.api_key = key

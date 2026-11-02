@@ -34,6 +34,9 @@ Requires Python 3.11–3.13 and FFmpeg.
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"                 # Windows: .venv\Scripts\pip install -e ".[dev]"
 .venv/bin/python -m playwright install chromium --no-shell
+# Optional: VieNeu-TTS offline Vietnamese voices, without its ~500 MB web UI
+.venv/bin/pip install --no-deps "vieneu>=3.8.3,<4"
+.venv/bin/pip install -r packaging/vieneu-requirements.txt
 ```
 
 Then start `threads2video-gui`, or run the CLI with `threads2video`.
@@ -55,7 +58,7 @@ threads2video-gui            # or: python -m threads2video.gui
    4. **Language & AI:**
       - reading language, review/edit before reading, hiding names (blur or black)
       - sound effect file or folder, volume and preview button
-      - voice preview, "Download Piper voice"
+      - voice preview, "Download Piper voice", "Download VieNeu model"
       - background music on/off
       - Gemini translation: on/off, API key, model, "Check key / list models"
 4. Press **Generate video**.
@@ -90,6 +93,7 @@ Start from [`config.example.yaml`](config.example.yaml): copy it to `config.yaml
 | `--reuse-segments` | Use `work/<code>/segments.json` as you edited it (see below) |
 | `--login` | Open a browser to log in to Threads (needs `fetch.profile_dir`) |
 | `--download-piper-voice [KEY]` | List Piper voices for the language, or download one |
+| `--download-vieneu` | Download the VieNeu-TTS Vietnamese model (~570 MB) |
 | `--install-browser` | Download the Chromium build that Playwright needs |
 | `-v` | Verbose logging |
 
@@ -127,11 +131,12 @@ All settings live in one YAML file (or JSON), and the GUI edits the same file. M
 
 | Option | Default | Effect |
 |---|---|---|
-| `provider` | `edge` | `edge`, `piper` or `capcut` |
-| `fallback` | `[edge, piper]` | Engines to try when the chosen one fails; unusable ones are skipped |
+| `provider` | `edge` | `edge`, `vieneu`, `piper` or `capcut` |
+| `fallback` | `[vieneu, edge, piper]` | Engines to try when the chosen one fails; unusable ones are skipped. If an engine fails on any segment, the whole video is read again by the next one, so every author keeps one voice. |
 | `voice` / `op_voice` | HoaiMy / NamMinh | The voice IDs for the chosen engine |
 | `random_voice_per_author` | true | Each commenter keeps one voice for the whole video, never the OP's |
 | `speed` | 1.10 | Applied afterwards by FFmpeg, so it's exact for every engine |
+| `piper_models_dir` / `vieneu_models_dir` | `models/piper` / `models/vieneu` | Where downloaded voice models are kept (the app uses its data folder) |
 
 **Language** (`language`, `translate`)
 
@@ -187,7 +192,8 @@ Narration is levelled per segment, so the mix lands around -16 LUFS whichever vo
 
 | Engine | Notes |
 |---|---|
-| **edge** (default) | Microsoft Edge "Read Aloud" voices. Free and needs internet, but the endpoint is undocumented. It has 2 Vietnamese voices; pitch variants give each commenter a distinct voice. The service sometimes returns no audio, so each call is retried up to 5 times, with a hard time limit. |
+| **edge** (default) | Microsoft Edge "Read Aloud" voices. Free and needs internet, but the endpoint is undocumented. It has 2 Vietnamese voices; pitch variants give each commenter a distinct voice. The service often returns no audio for some sentence/voice pairs, every time, so each call is tried 3 times (with a hard time limit) and then the video moves to the next engine. |
+| **vieneu** | Offline Vietnamese, more natural than Edge: [VieNeu-TTS](https://github.com/pnnbao97/VieNeu-TTS) v3 Turbo on CPU (ONNX), 25 voices (male/female, Northern/Central/Southern). Use "Download VieNeu model" or `--download-vieneu` (~570 MB, once). About 3× faster than real time on a recent CPU after a few seconds of loading. It is the first fallback when Edge fails. |
 | **piper** | Offline. Use "Download Piper voice" or `--download-piper-voice vi_VN-vais1000-medium`. That's the only Vietnamese model that works with current Piper. The others (`25hours_single`, `vivos`) would drop tones, so they are flagged and skipped. |
 | **capcut** | **Unofficial and unstable.** It uses the reverse-engineered [`capcut_tts_api`](https://github.com/K07VN/capcut-tts-api) package. That package has no license, so it isn't bundled: install it yourself (`pip install git+https://github.com/K07VN/capcut-tts-api`). Any failure falls back to the next engine. |
 
@@ -211,7 +217,8 @@ Later fetches reuse the session. Using a secondary account is recommended. Autom
 | Only ~10 replies; no OP replies | Expected when logged out. Log in. |
 | Threads changed its page and fetching breaks | The raw JSON is always saved. Re-parse it with `--from-cache` after updating `threads2video/fetcher/parser.py`. |
 | "Gemini rejected the API key" / "model not found" | Use **Check key / list models** and pick a model from the list. |
-| edge-tts keeps failing | Switch to Piper. Edge automatically falls back to Piper when a Piper voice is installed. |
+| edge-tts keeps failing | Download the VieNeu model: Edge then falls back to it automatically. Or pick VieNeu-TTS as the engine. |
+| "The Threads login window is still open" | The login browser and a job can't use the browser profile at the same time. Close the login window, then start the job. |
 | Emoji show as boxes on cards (Linux) | Install `fonts-noto-color-emoji`. |
 
 Logs go to the GUI's log panel. They're also saved to `logs/threads2video.log` in the data folder (GUI) or in `cache/` (CLI).
@@ -251,7 +258,7 @@ threads2video/
   fetcher/      urls.py, parser.py (raw JSON → model; offline), browser.py (Playwright, login, cookies)
   selection.py  which replies and in what order
   translate/    gemini.py
-  tts/          base.py, edge.py, piper.py, capcut.py, manager.py (fallback, voices, exact WAV), text.py
+  tts/          base.py, edge.py, vieneu.py, piper.py, capcut.py, manager.py (fallback, voices, exact WAV), text.py
   render/       cards.py + templates/card.html, captions.py
   compose/      timeline.py (pure timing), audio.py (narration/SFX tracks), video.py (FFmpeg graph)
   gui/          main_window.py, dialogs.py, workers.py, app.py
@@ -268,6 +275,7 @@ tools/          make_fixture.py
 - **This project:** GPL-3.0-or-later. It's a clean implementation; ideas come from [RedditVideoMakerBot](https://github.com/elebumm/RedditVideoMakerBot) (GPL-3.0), but no code was copied.
 - **Bundled components:**
   - [piper-tts](https://github.com/OHF-Voice/piper1-gpl): GPL-3.0
+  - [VieNeu-TTS](https://github.com/pnnbao97/VieNeu-TTS) (`vieneu`): Apache-2.0; the v3 Turbo model and the MOSS audio codec it downloads are Apache-2.0 too
   - PySide6 / Qt: LGPL-3.0
   - Playwright: Apache-2.0
   - FFmpeg builds such as Gyan's: GPL

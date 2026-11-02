@@ -21,4 +21,5 @@ def setup_logging(verbose: bool = False, log_file: Path | None = None) -> None:
     # Playwright/asyncio chatter is rarely useful.
     logging.getLogger("asyncio").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("Vieneu").setLevel(logging.WARNING)
     logging.getLogger("piper").setLevel(logging.ERROR)  # per-phoneme warnings; we check compatibility ourselves

@@ -1,0 +1,11 @@
+# VieNeu-TTS without its web UI (gradio, librosa: ~500 MB we never import).
+# Install with:
+#   pip install --no-deps "vieneu>=3.8.3,<4"
+#   pip install -r packaging/vieneu-requirements.txt
+sea-g2p>=0.9.1
+onnxruntime>=1.20
+soundfile
+soxr
+kaldi-native-fbank>=1.20
+tokenizers>=0.20
+huggingface_hub

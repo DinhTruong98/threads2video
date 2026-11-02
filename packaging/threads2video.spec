@@ -17,14 +17,20 @@ datas = (
     + collect_data_files("playwright", include_py_files=False)  # Node.js driver (no PyInstaller hook exists)
     + collect_data_files("edge_tts")
     + collect_data_files("certifi")
+    + collect_data_files("vieneu")  # preset voices
+    + collect_data_files("sea_g2p")  # Vietnamese G2P dictionary (sea_g2p.bin)
 )
 binaries = collect_dynamic_libs("piper")  # espeakbridge native module
 hiddenimports = (
     collect_submodules("threads2video")
     + ["piper.espeakbridge", "piper.phonemize_espeak", "edge_tts", "httpx", "numpy"]
+    # VieNeu's CPU/ONNX path only; its web UI and GPU servers need gradio/torch, which we don't ship.
+    + collect_submodules("vieneu", filter=lambda n: not any(s in n for s in ("serve", "remote", "xpu", "standard", "fast")))
+    + collect_submodules("vieneu_utils")
 )
 excludes = [
     "tkinter", "matplotlib", "IPython", "pytest", "flask", "piper.train", "piper.http_server",
+    "gradio", "librosa", "torch", "torchaudio", "transformers", "pandas", "scipy", "sklearn", "numba",
     "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineQuick", "PySide6.QtQuick3D",
     "PySide6.Qt3DCore", "PySide6.Qt3DRender", "PySide6.QtCharts", "PySide6.QtDataVisualization",
     "PySide6.QtPdf", "PySide6.QtPdfWidgets", "PySide6.QtDesigner", "PySide6.QtBluetooth", "PySide6.QtSql",

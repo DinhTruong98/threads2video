@@ -27,7 +27,8 @@ log = logging.getLogger(__name__)
 
 LANGUAGES = [("vi", "Tiếng Việt"), ("en", "English"), ("ja", "日本語"), ("ko", "한국어"), ("zh", "中文"),
              ("th", "ไทย"), ("id", "Bahasa Indonesia"), ("es", "Español")]
-PROVIDERS = [("edge", "Edge TTS (online, free)"), ("piper", "Piper (offline)"), ("capcut", "CapCut (unofficial, unstable)")]
+PROVIDERS = [("edge", "Edge TTS (online, free)"), ("vieneu", "VieNeu-TTS (offline, Vietnamese)"),
+             ("piper", "Piper (offline)"), ("capcut", "CapCut (unofficial, unstable)")]
 IDENTITY = [("show", "Show names"), ("blur", "Blur names & avatars"), ("black", "Black out names & avatars")]
 PREVIEW_TEXT = {"vi": "Xin chào! Đây là giọng đọc thử cho video Threads của bạn.",
                 "en": "Hi! This is a preview of the voice for your Threads video."}
@@ -93,7 +94,7 @@ class MainWindow(QMainWindow):
     def __init__(self, config_path: Path, defaults: AppConfig) -> None:
         super().__init__()
         self.config_path = config_path
-        self.cfg = load_config(config_path) if config_path.exists() else defaults
+        self.cfg = load_config(config_path, defaults)
         self.worker: JobWorker | None = None
         self.tasks: list[Task] = []
         self.last_video: Path | None = None
@@ -101,6 +102,7 @@ class MainWindow(QMainWindow):
         self.job_videos: dict[int, Path] = {}
         self.job_failed: dict[int, str] = {}
         self.current_job = 0
+        self.login_open = False
         # Created on first preview: Qt's audio backend is slow to start and can crash without a sound device.
         self.player: QMediaPlayer | None = None
         self.audio_out: QAudioOutput | None = None
@@ -203,12 +205,16 @@ class MainWindow(QMainWindow):
         self.preview_btn.clicked.connect(self._preview_voice)
         piper_btn = QPushButton("Download Piper voice…")
         piper_btn.clicked.connect(self._download_piper)
+        self.vieneu_btn = QPushButton("Download VieNeu model…")
+        self.vieneu_btn.setToolTip("Offline Vietnamese voices (~570 MB); used when Edge TTS fails")
+        self.vieneu_btn.clicked.connect(self._download_vieneu)
         prev_row = QWidget()
         pr = QHBoxLayout(prev_row)
         pr.setContentsMargins(0, 0, 0, 0)
         pr.addWidget(self.preview_text, 1)
         pr.addWidget(self.preview_btn)
         pr.addWidget(piper_btn)
+        pr.addWidget(self.vieneu_btn)
         self.music_enabled = QCheckBox("Background music")
         self.translate = QCheckBox("Translate with Gemini, then read")
         self.api_key = QLineEdit()
@@ -336,7 +342,7 @@ class MainWindow(QMainWindow):
         c.audio.music_volume = self.music_volume.value()
         c.tts.provider = self.provider.currentData()
         # Unusable fallbacks (e.g. Piper without a voice) are skipped at run time.
-        c.tts.fallback = [p for p in ("edge", "piper") if p != c.tts.provider]
+        c.tts.fallback = [p for p in ("vieneu", "edge", "piper") if p != c.tts.provider]
         if self.voice.currentData():
             c.tts.voice = self.voice.currentData()
         c.tts.op_voice = self.op_voice.currentData() or None
@@ -491,6 +497,44 @@ class MainWindow(QMainWindow):
         PiperDownloadDialog(cfg.language, cfg.tts.piper_models_dir, self).exec()
         self._refresh_voices()
 
+    def _download_vieneu(self) -> None:
+        from ..tts.vieneu import download_model, is_downloaded
+
+        models_dir = self._read().tts.vieneu_models_dir
+        try:
+            import vieneu  # noqa: F401
+        except ImportError:
+            QMessageBox.warning(self, "VieNeu-TTS", "The vieneu package is not installed (pip install vieneu).")
+            return
+        if is_downloaded(models_dir):
+            QMessageBox.information(self, "VieNeu-TTS", f"The VieNeu model is already downloaded to\n{models_dir}")
+            return
+        answer = QMessageBox.question(
+            self, "Download VieNeu-TTS",
+            "Download the VieNeu-TTS Vietnamese voice model (about 570 MB, once)?\n\n"
+            "It runs offline on this computer. It reads the video when Edge TTS fails, "
+            "or choose it as the TTS engine.")
+        if answer != QMessageBox.Yes:
+            return
+
+        def finish(ok: bool, msg: str = "") -> None:
+            self.vieneu_btn.setEnabled(True)
+            self.progress.setRange(0, 1000)
+            self.progress.setValue(1000 if ok else 0)
+            if ok:
+                self.status.setText("VieNeu-TTS model ready")
+                self._refresh_voices()
+            else:
+                QMessageBox.warning(self, "Download failed", msg)
+
+        self.vieneu_btn.setEnabled(False)
+        self.status.setText("Downloading VieNeu-TTS model…")
+        task = Task(lambda progress: download_model(models_dir, progress), with_progress=True)
+        # Progress in MB so the bar's int range is never exceeded.
+        task.progress.connect(lambda done, total: (self.progress.setRange(0, max(total >> 20, 1)),
+                                                   self.progress.setValue(done >> 20)))
+        self._run_task(task, lambda _: finish(True), lambda msg: finish(False, msg))
+
     def _check_gemini(self) -> None:
         cfg = self._read()
 
@@ -518,15 +562,30 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Login", "Set fetch.profile_dir in the config file first.")
             return
 
-        def run() -> None:
+        def run() -> bool:
             from ..fetcher import login_interactive
 
-            login_interactive(cfg.fetch)
+            return login_interactive(cfg.fetch)
 
-        self.login_btn.setEnabled(False)
+        def done(logged_in: bool) -> None:
+            self._set_login_open(False)
+            self.status.setText("Logged in to Threads" if logged_in else "Not logged in (window closed before login)")
+
+        def failed(msg: str) -> None:
+            self._set_login_open(False)
+            QMessageBox.warning(self, "Login failed", msg)
+
+        # The login window holds the browser profile, so a job can't fetch until it is closed.
+        self._set_login_open(True)
         self.status.setText("Log in in the browser window, then close it")
-        self._run_task(Task(run), lambda _: (self.login_btn.setEnabled(True), self.status.setText("Login saved")),
-                       lambda msg: (self.login_btn.setEnabled(True), QMessageBox.warning(self, "Login failed", msg)))
+        self._run_task(Task(run), done, failed)
+
+    def _set_login_open(self, open_: bool) -> None:
+        self.login_open = open_
+        self.login_btn.setEnabled(not open_)
+        self.generate_btn.setEnabled(not open_)
+        self.retry_btn.setEnabled(not open_ and bool(self.job_failed))
+        self.generate_btn.setToolTip("Close the Threads login window first" if open_ else "")
 
     # ---------------------------------------------------------------- jobs
 
@@ -570,6 +629,7 @@ class MainWindow(QMainWindow):
         self.worker.finished.connect(self._on_finished)
         self.generate_btn.setEnabled(False)
         self.retry_btn.setEnabled(False)
+        self.login_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
         self.progress.setValue(0)
         if len(urls) > 1:
@@ -636,6 +696,7 @@ class MainWindow(QMainWindow):
                 self.job_failed[i] = "Cancelled"
                 self._set_row(i, "Cancelled")
         self.generate_btn.setEnabled(True)
+        self.login_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self.retry_btn.setEnabled(bool(self.job_failed))
         ok, n = len(self.job_videos), len(self.job_urls)

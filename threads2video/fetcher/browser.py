@@ -32,6 +32,10 @@ class FetchError(RuntimeError):
     pass
 
 
+class ProfileInUseError(RuntimeError):
+    """The persistent profile is open in another Chromium (usually the login window); retrying won't help."""
+
+
 def thread_cache_dir(cache_dir: Path, code: str) -> Path:
     return Path(cache_dir) / "threads" / code
 
@@ -75,9 +79,16 @@ def _context(cfg: FetchConfig, *, headless: bool | None = None) -> Iterator[Brow
     with sync_playwright() as pw:
         if cfg.profile_dir:
             Path(cfg.profile_dir).mkdir(parents=True, exist_ok=True)
-            ctx = browser_env.launch_persistent(
-                pw, str(cfg.profile_dir), headless=headless, locale="en-US", **view
-            )
+            try:
+                ctx = browser_env.launch_persistent(
+                    pw, str(cfg.profile_dir), headless=headless, locale="en-US", **view
+                )
+            except PlaywrightError as e:
+                if "ProcessSingleton" in str(e) or "SingletonLock" in str(e):
+                    raise ProfileInUseError(
+                        "The Threads login window is still open. Close it, then try again."
+                    ) from None
+                raise
             browser = None
         else:
             browser = browser_env.launch(pw, headless=headless)
@@ -190,8 +201,8 @@ def load_cached_thread(url: str, cache_dir: Path) -> ThreadData:
     return parse_payloads(payloads, code=ref.code, source_url=ref.url)
 
 
-def login_interactive(cfg: FetchConfig) -> None:
-    """Open a visible browser on the persistent profile so the user can log in once."""
+def login_interactive(cfg: FetchConfig) -> bool:
+    """Open a visible browser on the persistent profile so the user can log in once; True if logged in."""
     if not cfg.profile_dir:
         raise FetchError("Set fetch.profile_dir in the config before logging in.")
     with _context(cfg, headless=False) as ctx:
@@ -199,4 +210,9 @@ def login_interactive(cfg: FetchConfig) -> None:
         page.goto("https://www.threads.com/login")
         log.info("Log in in the browser window, then close it to save the session.")
         page.wait_for_event("close", timeout=0)
-        log.info("Session saved to %s (logged in: %s)", cfg.profile_dir, _is_logged_in(ctx))
+        logged_in = _is_logged_in(ctx)
+        if logged_in:
+            log.info("Logged in; session saved to %s", cfg.profile_dir)
+        else:
+            log.warning("The login window was closed before logging in; replies load as logged out")
+        return logged_in

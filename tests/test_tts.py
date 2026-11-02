@@ -138,3 +138,44 @@ def test_unavailable_providers_skipped():
     m = TTSManager(TTSConfig(provider="capcut", fallback=[]), "vi", ffmpeg=None, providers={"capcut": Missing("capcut")})
     with pytest.raises(TTSError, match="No usable TTS provider"):
         m.chain()
+
+
+class FailsOn(FakeTTS):
+    """Fails only for texts containing `word`, like edge-tts refusing some sentences."""
+
+    def __init__(self, name, word):
+        super().__init__(name)
+        self.word = word
+
+    def synthesize(self, text, voice, out_stem):
+        if self.word in text:
+            self.calls.append((text, str(voice)))
+            raise TTSError("No audio was received")
+        return super().synthesize(text, voice, out_stem)
+
+
+@needs_ffmpeg
+def test_one_failing_segment_moves_the_whole_video_to_the_fallback(tmp_path):
+    from threads2video.ffmpeg import find_ffmpeg
+
+    edge, vieneu = FailsOn("edge", "Oracle"), FakeTTS("vieneu")
+    cfg = TTSConfig(provider="edge", fallback=["vieneu"])
+    m = TTSManager(cfg, "vi", find_ffmpeg(), providers={"edge": edge, "vieneu": vieneu})
+    segs = [seg(0, "op", op=True), seg(1, "alice"), seg(2, "bob", text="Oracle làm vẫn bình thường mà."),
+            seg(3, "op", op=True, text="Tin chuẩn đấy bạn ơi.")]
+    out = m.synthesize_segments(segs, tmp_path)
+    # Mixed engines would give the OP two different voices; everything is read by the fallback.
+    assert all(s.voice.startswith("vieneu:") for s in out)
+    assert out[0].voice == out[3].voice
+    assert len(vieneu.calls) == 4
+
+
+def test_op_voice_set_for_another_engine_still_differs_from_default():
+    p = FakeTTS(n_voices=4)  # a fallback engine that knows none of the configured voices
+    op = seg(0, "op", op=True)
+    a = VoiceAssigner(TTSConfig(voice="vi-VN-HoaiMyNeural", op_voice="vi-VN-NamMinhNeural",
+                                random_voice_per_author=False), "vi", seed="s")
+    assert str(a.voice(p, a.slot(op))) == "v1" and str(a.voice(p, "default")) == "v0"
+    # No OP voice configured means "same as default".
+    a = VoiceAssigner(TTSConfig(voice="v2", op_voice=None), "vi", seed="s")
+    assert str(a.voice(p, a.slot(op))) == "v2"
