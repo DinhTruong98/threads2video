@@ -27,6 +27,9 @@ hiddenimports = (
     # VieNeu's CPU/ONNX path only; its web UI and GPU servers need gradio/torch, which we don't ship.
     + collect_submodules("vieneu", filter=lambda n: not any(s in n for s in ("serve", "remote", "xpu", "standard", "fast")))
     + collect_submodules("vieneu_utils")
+    # MCP server (--mcp / --mcp-http): uvicorn picks its event loop and protocol modules at run time.
+    + collect_submodules("mcp", filter=lambda n: not n.startswith("mcp.cli"))
+    + collect_submodules("uvicorn")
 )
 excludes = [
     "tkinter", "matplotlib", "IPython", "pytest", "flask", "piper.train", "piper.http_server",

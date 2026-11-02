@@ -113,6 +113,41 @@ Unchanged audio, translations and AI answers are reused on re-runs.
 
 ---
 
+## AI agents (MCP)
+
+The app is also an [MCP](https://modelcontextprotocol.io) server, so an AI agent (Claude, Cursor, …) can make
+videos by itself. **Every job starts from the settings saved in the desktop app** (re-read for each job, so
+changes in the app apply at once). The agent overrides something only when you ask it to.
+
+Connect your agent to the CLI executable with `--mcp`. It talks over stdin/stdout; the agent starts it:
+
+```bash
+claude mcp add threads2video -- /path/to/threads2video/threads2video --mcp
+```
+
+For JSON configs (Claude Desktop, Cursor, …):
+
+```json
+{"mcpServers": {"threads2video": {"command": "/path/to/threads2video/threads2video", "args": ["--mcp"]}}}
+```
+
+On Windows use `C:\path\to\threads2video\threads2video.exe`. From source: `threads2video-mcp`, or
+`python -m threads2video --mcp`.
+
+Agents that connect over HTTP instead: run `threads2video --mcp-http` (port 18765, or `--mcp-http PORT`) and
+use `http://127.0.0.1:18765/mcp`. It listens on this computer only.
+
+| Tool | What it does |
+|---|---|
+| `create_video` | One video per Threads URL. Optional overrides for that job: `aspect`, `top_comments`, `op_replies`, `tts_engine`, `voice`, `op_voice`, `speed`, `background`, `music`, `subtitles`, `language`, `translate`, `ai_speech_text`, `ai_reactions`, and any setting by dotted path in `settings` (`{"audio.music_volume": 15}`). `wait=true` returns when done, with progress; `wait=false` returns a `job_id` at once |
+| `get_job` / `list_jobs` / `cancel_job` | Status, videos (path, duration, voices, reactions) and per-URL errors |
+| `get_settings` | The saved defaults (API key hidden) |
+| `list_videos` | Recent videos in the output folder |
+
+Jobs run one at a time (they share the logged-in browser profile and the TTS models); a failing post doesn't
+stop the others. The review dialog is skipped. A video takes about 1–2 minutes: agents whose tool calls time
+out sooner should use `wait=false` and poll `get_job`. Logs: `<cache>/logs/mcp.log`.
+
 ## Configuration reference
 
 All settings live in one YAML file (or JSON), and the GUI edits the same file. Main options:
@@ -273,6 +308,7 @@ threads2video/
   fetcher/      urls.py, parser.py (raw JSON → model; offline), browser.py (Playwright, login, cookies)
   selection.py  which replies and in what order
   translate/    gemini.py
+  mcp_server.py MCP server for AI agents (create_video, get_job, …)
   tts/          base.py, edge.py, vieneu.py, piper.py, capcut.py, manager.py (fallback, voices, exact WAV), text.py
   render/       cards.py + templates/card.html, captions.py
   compose/      timeline.py (pure timing), audio.py (narration/SFX tracks), video.py (FFmpeg graph)

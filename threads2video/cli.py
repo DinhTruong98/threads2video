@@ -20,7 +20,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="threads2video", description=__doc__)
     p.add_argument("urls", nargs="*", help="Threads post URL(s)")
     p.add_argument("-f", "--urls-file", type=Path, help="text file with one URL per line (# comments allowed)")
-    p.add_argument("-c", "--config", type=Path, default=Path("config.yaml"), help="YAML/JSON config (default: config.yaml)")
+    p.add_argument("-c", "--config", type=Path,
+                   help="YAML/JSON config (default: config.yaml; with --mcp: the desktop app's saved settings)")
     p.add_argument("--until", choices=STAGES, default=STAGES[-1], help="stop after this stage")
     p.add_argument("--from-cache", action="store_true", help="re-parse cached raw JSON instead of fetching")
     p.add_argument("--reuse-segments", action="store_true",
@@ -30,6 +31,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="download a Piper voice (no KEY: list voices for the configured language)")
     p.add_argument("--download-vieneu", action="store_true",
                    help="download the VieNeu-TTS Vietnamese model (~570 MB) into tts.vieneu_models_dir")
+    p.add_argument("--mcp", action="store_true", help="run as an MCP server on stdio, for AI agents")
+    p.add_argument("--mcp-http", metavar="PORT", type=int, nargs="?", const=18765,
+                   help="run as an MCP server on http://127.0.0.1:PORT/mcp (default port 18765)")
     p.add_argument("--install-browser", action="store_true", help="download the Chromium build Playwright needs")
     p.add_argument("-v", "--verbose", action="store_true")
     return p
@@ -62,7 +66,14 @@ def _print_progress(stage: str, fraction: float, message: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     runtime.prepare()
-    cfg = load_config(args.config)
+    if args.mcp or args.mcp_http:
+        from . import mcp_server
+
+        cfg = mcp_server.load_settings(args.config)
+        setup_logging(args.verbose, cfg.cache_dir / "logs" / "mcp.log")  # console logs go to stderr
+        mcp_server.main(http_port=args.mcp_http, config_path=args.config)
+        return 0
+    cfg = load_config(args.config or Path("config.yaml"))
     setup_logging(args.verbose, cfg.cache_dir / "logs" / "threads2video.log")
 
     if args.install_browser:

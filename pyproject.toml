@@ -18,6 +18,7 @@ dependencies = [
     "piper-tts>=1.3",
     "numpy>=1.26",
     "PySide6>=6.7",
+    "mcp>=2.3,<3",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,7 @@ vieneu = ["vieneu>=3.8.3,<4"]
 
 [project.scripts]
 threads2video = "threads2video.cli:main"
+threads2video-mcp = "threads2video.mcp_server:cli"
 
 [project.gui-scripts]
 threads2video-gui = "threads2video.gui.app:main"

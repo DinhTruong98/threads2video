@@ -17,19 +17,9 @@ from PySide6.QtCore import QObject, Qt, QThread, Signal
 from ..config import AppConfig
 from ..ffmpeg import FFmpegCancelled
 from ..models import Segment
-from ..pipeline import STAGES, JobCancelled, JobResult, run_job
+from ..pipeline import JobCancelled, JobResult, overall_progress, run_job
 
 log = logging.getLogger(__name__)
-
-# Rough share of total time per stage, for one overall progress bar.
-STAGE_WEIGHTS = {"fetch": 10, "select": 2, "translate": 5, "ai": 5, "tts": 30, "render": 10, "compose": 38}
-
-
-def overall_progress(stage: str, fraction: float) -> float:
-    total = sum(STAGE_WEIGHTS.values())
-    before = sum(STAGE_WEIGHTS[s] for s in STAGES[: STAGES.index(stage)] if s in STAGE_WEIGHTS)
-    return min(1.0, (before + STAGE_WEIGHTS.get(stage, 0) * max(0.0, min(1.0, fraction))) / total)
-
 
 class LogBridge(QObject, logging.Handler):
     """logging.Handler that forwards records to the UI thread as a signal."""

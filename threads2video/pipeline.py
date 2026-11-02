@@ -30,6 +30,16 @@ STAGES = ["fetch", "select", "translate", "ai", "tts", "render", "compose"]
 Progress = Callable[[str, float, str], None]  # (stage, fraction 0..1, message)
 
 
+# Rough share of total time per stage, for one overall progress bar.
+STAGE_WEIGHTS = {"fetch": 10, "select": 2, "translate": 5, "ai": 5, "tts": 30, "render": 10, "compose": 38}
+
+
+def overall_progress(stage: str, fraction: float) -> float:
+    total = sum(STAGE_WEIGHTS.values())
+    before = sum(STAGE_WEIGHTS[s] for s in STAGES[: STAGES.index(stage)] if s in STAGE_WEIGHTS)
+    return min(1.0, (before + STAGE_WEIGHTS.get(stage, 0) * max(0.0, min(1.0, fraction))) / total)
+
+
 class JobCancelled(RuntimeError):
     pass
 
